@@ -117,7 +117,11 @@ async function loadEngine() {
 
   try {
     const mod = await import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js');
-    const WasmPaths = (await import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/wasm-from-cdn.js')).default;
+    const CDN_BASE = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm';
+    const WasmPaths = {
+      'single-thread/wllama.wasm': CDN_BASE + '/single-thread/wllama.wasm',
+      'multi-thread/wllama.wasm': CDN_BASE + '/multi-thread/wllama.wasm',
+    };
 
     log('Creating wllama instance...');
     wllama = new mod.Wllama(WasmPaths, {
