@@ -3,84 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>sea of glass — capital</title>
-  <meta property="og:title" content="sea of glass — capital">
+  <title>sea of glass - capital</title>
+  <meta property="og:title" content="sea of glass - capital">
+  <meta property="og:description" content="local LLM inference - zero trust, in-browser">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="#0a0a0f">
-  <style>
-    :root {
-      --bg: #0a0a0f;
-      --surface: #12121a;
-      --border: #1e1e2e;
-      --text: #c4945a;
-      --text-dim: #8a6a3e;
-      --accent: #c4945a;
-      --accent-dim: #7a5c38;
-      --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-    }
-
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: var(--mono);
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 2rem;
-    }
-
-    .container {
-      max-width: 520px;
-      width: 100%;
-      text-align: center;
-    }
-
-    h1 {
-      font-size: 1.1rem;
-      font-weight: 400;
-      color: var(--accent);
-      margin-bottom: 0.5rem;
-      letter-spacing: 0.05em;
-    }
-
-    .subtitle {
-      font-size: 0.7rem;
-      color: var(--text-dim);
-      opacity: 0.6;
-      margin-bottom: 2rem;
-    }
-
-    .sep {
-      border: none;
-      border-top: 1px solid var(--border);
-      margin: 2rem 0;
-    }
-
-    .status {
-      font-size: 0.65rem;
-      color: var(--text-dim);
-      opacity: 0.4;
-    }
-
-    .status a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-
-    .status a:hover {
-      text-decoration: underline;
-    }
-  </style>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div class="container">
-    <h1>sea of glass / capital</h1>
-    <p class="subtitle">under construction</p>
-    <hr class="sep">
-    <p class="status"><a href="https://seaof.glass">seaof.glass</a></p>
+    <h1><span>sea of glass</span> / capital</h1>
+    <p class="subtitle">local LLM inference - zero trust, in-browser</p>
+
+    <div id="status"></div>
+
+    <div class="engine-row">
+      <div class="engine-info">
+        <span id="engine-label">no engine loaded</span>
+        <span id="engine-stats"></span>
+      </div>
+      <div class="engine-controls">
+        <button id="load-webllm" class="engine-btn">load WebLLM</button>
+        <button id="load-wasm" class="engine-btn">load WASM</button>
+      </div>
+    </div>
+
+    <div class="chat-frame">
+      <div id="chat-messages" class="chat-messages">
+        <div class="chat-empty">load an engine to start</div>
+      </div>
+    </div>
+
+    <div class="input-row">
+      <textarea id="chat-input" placeholder="type a message..." rows="2" disabled></textarea>
+      <button id="send-btn" disabled>send</button>
+    </div>
+
+    <div class="log-box">
+      <div class="log-header">log</div>
+      <div id="log" class="log-body"></div>
+    </div>
   </div>
+
+  <script type="module" src="js/main.js?v=1"></script>
 </body>
 </html>
