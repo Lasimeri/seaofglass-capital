@@ -3,8 +3,8 @@
 
 import { getToolDefinitions, executeTool } from './tools.js?v=1';
 
-const MODEL_HF_REPO = 'unsloth/Qwen3.5-2B-GGUF';
-const MODEL_FILE = 'Qwen3.5-2B-Q4_K_M.gguf';
+const MODEL_HF_REPO = 'unsloth/Qwen3-4B-Thinking-2507-GGUF';
+const MODEL_FILE = 'Qwen3-4B-Thinking-2507-Q4_K_M.gguf';
 const MAX_TOOL_ROUNDS = 10;
 
 const $ = (id) => document.getElementById(id);
@@ -116,11 +116,10 @@ async function loadEngine() {
   log('Importing wllama from CDN...');
 
   try {
-    const mod = await import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js');
-    const CDN_BASE = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm';
+    const mod = await import('../wllama/index.js');
     const WasmPaths = {
-      'single-thread/wllama.wasm': CDN_BASE + '/single-thread/wllama.wasm',
-      'multi-thread/wllama.wasm': CDN_BASE + '/multi-thread/wllama.wasm',
+      'single-thread/wllama.wasm': '../wllama/single-thread/wllama.wasm',
+      'multi-thread/wllama.wasm': '../wllama/multi-thread/wllama.wasm',
     };
 
     log('Creating wllama instance...');
@@ -143,13 +142,13 @@ async function loadEngine() {
       }
     });
 
-    engineLabel.textContent = 'Qwen3.5-2B (Q4_K_M)';
+    engineLabel.textContent = 'Qwen3-4B-Thinking-2507 (Q4_K_M)';
     engineStats.textContent = 'WASM | CPU';
     loadBtn.classList.add('active');
 
     chatInput.disabled = false;
     sendBtn.disabled = false;
-    setStatus('Ready — Qwen3.5-2B');
+    setStatus('Ready — Qwen3-4B');
     log('Model loaded, ready for inference');
 
   } catch (err) {
