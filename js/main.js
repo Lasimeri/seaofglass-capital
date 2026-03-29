@@ -3,8 +3,8 @@
 
 import { getToolDefinitions, executeTool } from './tools.js?v=1';
 
-const MODEL_HF_REPO = 'unsloth/Qwen3-4B-Thinking-2507-GGUF';
-const MODEL_FILE = 'Qwen3-4B-Thinking-2507-Q3_K_S.gguf';
+const MODEL_HF_REPO = 'unsloth/Qwen3-VL-2B-Instruct-GGUF';
+const MODEL_FILE = 'Qwen3-VL-2B-Instruct-Q4_K_M.gguf';
 const MAX_TOOL_ROUNDS = 10;
 
 const $ = (id) => document.getElementById(id);
@@ -142,7 +142,7 @@ async function loadEngine() {
       }
     });
 
-    engineLabel.textContent = 'Qwen3-4B-Thinking-2507 (Q3_K_S)';
+    engineLabel.textContent = 'Qwen3-VL-2B-Instruct (Q4_K_M)';
     engineStats.textContent = 'WASM | CPU';
     loadBtn.classList.add('active');
 
