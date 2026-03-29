@@ -1,7 +1,11 @@
 // main.js - In-browser LLM agent with tool support
-// Primary: WebLLM (WebGPU), Fallback: llama.cpp WASM
+// Engine: wllama (llama.cpp WASM + GGUF)
 
 import { getToolDefinitions, executeTool } from './tools.js?v=1';
+
+const MODEL_HF_REPO = 'unsloth/Qwen3.5-2B-GGUF';
+const MODEL_FILE = 'Qwen3.5-2B-Q4_K_M.gguf';
+const MAX_TOOL_ROUNDS = 10;
 
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
@@ -9,13 +13,11 @@ const logEl = $('log');
 const chatMessages = $('chat-messages');
 const chatInput = $('chat-input');
 const sendBtn = $('send-btn');
-const loadWebllmBtn = $('load-webllm');
-const loadWasmBtn = $('load-wasm');
+const loadBtn = $('load-btn');
 const engineLabel = $('engine-label');
 const engineStats = $('engine-stats');
 
-let engine = null;
-let engineType = null;
+let wllama = null;
 let messages = [];
 let generating = false;
 
@@ -32,10 +34,8 @@ function log(msg) {
 // --- Chat UI ---
 
 function addMessage(role, content, streaming = false) {
-  // Remove empty state
   const empty = chatMessages.querySelector('.chat-empty');
   if (empty) empty.remove();
-
   const el = document.createElement('div');
   el.className = 'msg';
   const roleEl = document.createElement('div');
@@ -51,118 +51,112 @@ function addMessage(role, content, streaming = false) {
   return bodyEl;
 }
 
-function updateStreamingMessage(bodyEl, content) {
+function updateMsg(bodyEl, content) {
   bodyEl.textContent = content;
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-function finalizeMessage(bodyEl) {
+function finalizeMsg(bodyEl) {
   bodyEl.classList.remove('streaming');
 }
 
-// --- WebLLM Engine ---
+// --- Build prompt for wllama (ChatML format for Qwen) ---
 
-async function loadWebLLM() {
-  loadWebllmBtn.disabled = true;
-  loadWasmBtn.disabled = true;
-  setStatus('Loading WebLLM runtime...');
-  log('Importing WebLLM from CDN...');
+function buildChatML(msgs, tools) {
+  let prompt = '';
+
+  // System message with tools
+  if (tools && tools.length > 0) {
+    prompt += '<|im_start|>system\n';
+    prompt += 'You are a helpful assistant with access to tools.\n\n';
+    prompt += '# Tools\n\nYou have access to the following functions:\n\n';
+    for (const t of tools) {
+      prompt += JSON.stringify(t.function) + '\n';
+    }
+    prompt += '\nTo call a function, respond with:\n';
+    prompt += '<tool_call>\n{"name": "function_name", "arguments": {"param": "value"}}\n</tool_call>\n';
+    prompt += '\nYou can call multiple tools. After receiving tool results, continue your response.\n';
+    prompt += '<|im_end|>\n';
+  }
+
+  for (const m of msgs) {
+    if (m.role === 'tool') {
+      prompt += '<|im_start|>user\n[Tool result]: ' + m.content + '<|im_end|>\n';
+    } else {
+      prompt += '<|im_start|>' + m.role + '\n' + (m.content || '') + '<|im_end|>\n';
+    }
+  }
+  prompt += '<|im_start|>assistant\n';
+  return prompt;
+}
+
+// Parse tool calls from wllama text output
+function parseToolCalls(text) {
+  const calls = [];
+  const regex = /<tool_call>\s*(\{[\s\S]*?\})\s*<\/tool_call>/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      calls.push({ name: parsed.name, arguments: parsed.arguments || {} });
+    } catch (e) {}
+  }
+  return calls;
+}
+
+function stripToolCalls(text) {
+  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim();
+}
+
+// --- Load wllama (primary: GGUF via WASM) ---
+
+async function loadEngine() {
+  loadBtn.disabled = true;
+  setStatus('Loading wllama runtime...');
+  log('Importing wllama from CDN...');
 
   try {
-    // Check WebGPU support
-    if (!navigator.gpu) {
-      throw new Error('WebGPU not supported in this browser. Try Chrome 113+ or Edge.');
-    }
+    const mod = await import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js');
+    const WasmPaths = (await import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/wasm-from-cdn.js')).default;
 
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) {
-      throw new Error('No WebGPU adapter found. GPU may not be supported.');
-    }
-    log('WebGPU adapter: ' + (adapter.info?.device || 'available'));
-
-    // Import WebLLM
-    const webllm = await import('https://esm.run/@mlc-ai/web-llm');
-    log('WebLLM module loaded');
-
-    // Create engine with progress callback
-    setStatus('Downloading model (this may take a while)...');
-    log('Initializing engine...');
-
-    const initProgressCallback = (report) => {
-      setStatus(report.text || 'Loading...');
-      log(report.text || 'progress...');
-    };
-
-    // Use a small, fast model as default — user can provide their own later
-    // Phi-3.5-mini-instruct is ~2.3GB quantized, good balance of size/quality
-    const selectedModel = 'Phi-3.5-mini-instruct-q4f16_1-MLC';
-
-    engine = await webllm.CreateMLCEngine(selectedModel, {
-      initProgressCallback: initProgressCallback,
+    log('Creating wllama instance...');
+    wllama = new mod.Wllama(WasmPaths, {
+      logger: {
+        debug: () => {},
+        log: (...args) => log('[wllama] ' + args.join(' ')),
+        warn: (...args) => log('[wllama:warn] ' + args.join(' ')),
+        error: (...args) => log('[wllama:err] ' + args.join(' ')),
+      }
     });
 
-    engineType = 'webllm';
-    engineLabel.textContent = 'WebLLM (' + selectedModel.split('-q')[0] + ')';
-    engineStats.textContent = 'WebGPU accelerated';
-    loadWebllmBtn.classList.add('active');
+    setStatus('Downloading model (' + MODEL_FILE + ')...');
+    log('Loading ' + MODEL_HF_REPO + '/' + MODEL_FILE);
 
-    chatInput.disabled = false;
-    sendBtn.disabled = false;
-    setStatus('Ready');
-    log('WebLLM engine ready');
-
-  } catch (err) {
-    setStatus('WebLLM failed: ' + err.message);
-    log('ERROR: ' + err.message);
-    loadWebllmBtn.disabled = false;
-    loadWasmBtn.disabled = false;
-  }
-}
-
-// --- WASM (llama.cpp) Engine ---
-
-async function loadWASM() {
-  loadWebllmBtn.disabled = true;
-  loadWasmBtn.disabled = true;
-  setStatus('Loading WASM engine...');
-  log('WASM fallback — CPU inference');
-
-  try {
-    // Placeholder: llama.cpp WASM requires a compiled module + model file
-    // The user will provide the model; this sets up the interface
-    setStatus('WASM engine: waiting for model');
-    log('WASM engine initialized (no model loaded yet)');
-    log('To use: provide a GGUF model file via the model loader');
-
-    engineType = 'wasm';
-    engineLabel.textContent = 'WASM (llama.cpp)';
-    engineStats.textContent = 'CPU only - no model loaded';
-    loadWasmBtn.classList.add('active');
-
-    // For now, enable chat with a stub that explains the situation
-    engine = {
-      type: 'wasm-stub',
-      chat: async function(msgs) {
-        return { choices: [{ message: { content: 'WASM engine is ready but no model is loaded yet. Provide a GGUF model to enable inference.' } }] };
+    await wllama.loadModelFromHF(MODEL_HF_REPO, MODEL_FILE, {
+      progressCallback: ({ loaded, total }) => {
+        const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
+        setStatus('Downloading model... ' + pct + '%');
       }
-    };
+    });
+
+    engineLabel.textContent = 'Qwen3.5-2B (Q4_K_M)';
+    engineStats.textContent = 'WASM | CPU';
+    loadBtn.classList.add('active');
 
     chatInput.disabled = false;
     sendBtn.disabled = false;
-    setStatus('WASM ready (no model)');
-    log('Load a GGUF model to begin inference');
+    setStatus('Ready — Qwen3.5-2B');
+    log('Model loaded, ready for inference');
 
   } catch (err) {
-    setStatus('WASM failed: ' + err.message);
+    setStatus('Failed: ' + err.message);
     log('ERROR: ' + err.message);
-    loadWebllmBtn.disabled = false;
-    loadWasmBtn.disabled = false;
+    loadBtn.disabled = false;
   }
 }
 
-// --- Agent Loop: generate -> tool calls -> execute -> feed back -> repeat ---
 
-const MAX_TOOL_ROUNDS = 10;
+// --- Agent Loop ---
 
 async function agentLoop(userText) {
   generating = true;
@@ -178,77 +172,52 @@ async function agentLoop(userText) {
     const bodyEl = addMessage('assistant', '', true);
 
     try {
-      if (engineType === 'webllm') {
-        // First try non-streaming to detect tool calls
-        log('Generating (round ' + (round + 1) + ')...');
-        const startTime = performance.now();
+      const prompt = buildChatML(messages, tools);
+      log('Generating (round ' + (round + 1) + ', ' + prompt.length + ' chars prompt)...');
+      const startTime = performance.now();
 
-        const response = await engine.chat.completions.create({
-          messages: messages,
-          tools: tools.length > 0 ? tools : undefined,
-          temperature: 0.7,
-          max_tokens: 1024,
-        });
+      let fullResponse = '';
+      await wllama.createCompletion(prompt, {
+        nPredict: 1024,
+        sampling: { temp: 0.7, top_k: 40, top_p: 0.9 },
+        onNewToken: (token, piece, currentText) => {
+          fullResponse = currentText;
+          updateMsg(bodyEl, currentText);
+        },
+        stopTokens: ['<|im_end|>'],
+      });
 
-        const choice = response.choices[0];
-        const elapsed = (performance.now() - startTime) / 1000;
-        const usage = response.usage || {};
-        const tps = usage.completion_tokens ? (usage.completion_tokens / elapsed).toFixed(1) : '?';
-        engineStats.textContent = 'WebGPU | ' + tps + ' tok/s';
+      const elapsed = (performance.now() - startTime) / 1000;
+      engineStats.textContent = 'WASM | ' + elapsed.toFixed(1) + 's';
+      log('Generated in ' + elapsed.toFixed(1) + 's');
 
-        if (choice.finish_reason === 'tool_calls' && choice.message.tool_calls) {
-          // LLM wants to call tools
-          const content = choice.message.content || '';
-          if (content) updateStreamingMessage(bodyEl, content);
+      const toolCalls = parseToolCalls(fullResponse);
+      const cleanText = stripToolCalls(fullResponse);
 
-          messages.push(choice.message);
+      if (toolCalls.length > 0) {
+        if (cleanText) updateMsg(bodyEl, cleanText);
+        finalizeMsg(bodyEl);
+        messages.push({ role: 'assistant', content: fullResponse });
 
-          // Execute each tool call
-          for (const tc of choice.message.tool_calls) {
-            const fnName = tc.function.name;
-            let fnArgs = {};
-            try { fnArgs = JSON.parse(tc.function.arguments); } catch (e) {}
-
-            log('Tool call: ' + fnName + '(' + JSON.stringify(fnArgs).slice(0, 80) + ')');
-            addMessage('system', 'tool: ' + fnName);
-
-            const result = await executeTool(fnName, fnArgs);
-            const resultStr = result.success ? result.result : 'Error: ' + result.error;
-            log('Tool result: ' + resultStr.slice(0, 100));
-
-            messages.push({
-              role: 'tool',
-              content: resultStr,
-              tool_call_id: tc.id
-            });
-          }
-
-          finalizeMessage(bodyEl);
-          if (!content) bodyEl.parentElement.remove(); // Remove empty assistant msg
-          continue; // Next round — LLM processes tool results
-
-        } else {
-          // Normal text response — done
-          const content = choice.message.content || '';
-          updateStreamingMessage(bodyEl, content);
-          finalizeMessage(bodyEl);
-          messages.push({ role: 'assistant', content: content });
-          log('Generated in ' + elapsed.toFixed(1) + 's');
-          break;
+        for (const tc of toolCalls) {
+          log('Tool call: ' + tc.name);
+          addMessage('system', 'tool: ' + tc.name);
+          const result = await executeTool(tc.name, tc.arguments);
+          const resultStr = result.success ? result.result : 'Error: ' + result.error;
+          log('Result: ' + resultStr.slice(0, 100));
+          messages.push({ role: 'tool', content: resultStr });
         }
-
-      } else if (engineType === 'wasm') {
-        const result = await engine.chat(messages);
-        const content = result.choices[0].message.content;
-        updateStreamingMessage(bodyEl, content);
-        finalizeMessage(bodyEl);
-        messages.push({ role: 'assistant', content: content });
+        if (!cleanText) bodyEl.parentElement.remove();
+        continue;
+      } else {
+        updateMsg(bodyEl, cleanText || fullResponse);
+        finalizeMsg(bodyEl);
+        messages.push({ role: 'assistant', content: cleanText || fullResponse });
         break;
       }
-
     } catch (err) {
-      updateStreamingMessage(bodyEl, '[Error: ' + err.message + ']');
-      finalizeMessage(bodyEl);
+      updateMsg(bodyEl, '[Error: ' + err.message + ']');
+      finalizeMsg(bodyEl);
       log('ERROR: ' + err.message);
       break;
     }
@@ -261,14 +230,13 @@ async function agentLoop(userText) {
 
 async function sendMessage() {
   const text = chatInput.value.trim();
-  if (!text || generating || !engine) return;
+  if (!text || generating || !wllama) return;
   await agentLoop(text);
 }
 
-// --- Event Listeners ---
+// --- Events ---
 
-loadWebllmBtn.addEventListener('click', loadWebLLM);
-loadWasmBtn.addEventListener('click', loadWASM);
+loadBtn.addEventListener('click', loadEngine);
 sendBtn.addEventListener('click', sendMessage);
 
 chatInput.addEventListener('keydown', (e) => {
