@@ -4,7 +4,7 @@
 import { getToolDefinitions, executeTool } from './tools.js?v=1';
 
 const MODEL_HF_REPO = 'unsloth/Qwen3-4B-Thinking-2507-GGUF';
-const MODEL_FILE = 'Qwen3-4B-Thinking-2507-Q4_K_M.gguf';
+const MODEL_FILE = 'Qwen3-4B-Thinking-2507-Q3_K_S.gguf';
 const MAX_TOOL_ROUNDS = 10;
 
 const $ = (id) => document.getElementById(id);
@@ -113,7 +113,7 @@ function stripToolCalls(text) {
 async function loadEngine() {
   loadBtn.disabled = true;
   setStatus('Loading wllama runtime...');
-  log('Importing wllama from CDN...');
+  log('Importing wllama...');
 
   try {
     const mod = await import('../wllama/index.js');
@@ -142,7 +142,7 @@ async function loadEngine() {
       }
     });
 
-    engineLabel.textContent = 'Qwen3-4B-Thinking-2507 (Q4_K_M)';
+    engineLabel.textContent = 'Qwen3-4B-Thinking-2507 (Q3_K_S)';
     engineStats.textContent = 'WASM | CPU';
     loadBtn.classList.add('active');
 
