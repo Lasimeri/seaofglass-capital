@@ -32,14 +32,29 @@ export async function store(blob, meta) {
   return res.json();
 }
 
-// Load archive by URL (the URL is the identifier)
+// Check if an archive exists (lightweight, no blob)
+export async function checkArchive(url) {
+  const res = await fetch(`${WORKER_URL}/check?url=${encodeURIComponent(url)}`);
+  if (!res.ok) return { exists: false };
+  return res.json();
+}
+
+// Request a session to access an archive (5min TTL, single-use wrapped key)
+export async function requestSession(url) {
+  const res = await fetch(`${WORKER_URL}/session?url=${encodeURIComponent(url)}`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'session failed');
+  return res.json();
+}
+
+// Direct archive load (used by admin tab which has the key from creation)
 export async function loadArchive(url) {
   const res = await fetch(`${WORKER_URL}/archive?url=${encodeURIComponent(url)}`);
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'not found');
   return res.json();
 }
 
-// Delete archive by URL
 export async function remove(url, token) {
   const res = await fetch(`${WORKER_URL}/archive?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token)}`, {
     method: 'DELETE',

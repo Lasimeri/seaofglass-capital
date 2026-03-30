@@ -2,7 +2,7 @@
 // Create: html -> deflate -> AES-GCM -> base64 -> LZMA -> base64
 // Read:   base64 -> LZMA -> base64 -> AES-GCM -> deflate -> html
 
-import { generateKey, exportKey, importKey, base64url, unbase64url } from './crypto.js?v=1';
+import { generateKey, exportKey, importKey, base64url, unbase64url } from './crypto.js?v=2';
 import { compress, decompress } from './compress.js?v=1';
 
 // --- Chunked base64 for large arrays (avoids stack overflow) ---
@@ -51,6 +51,29 @@ export async function createArchive(html) {
   const blob = arrayToBase64(lzmaOut);
 
   return { blob, key: keyStr };
+}
+
+// Unwrap a session-wrapped key (PBKDF2 + AES-GCM, CPU-based)
+export async function unwrapSessionKey(wrappedKeyHex, sessionSecret, sessionId) {
+  // Decode hex → bytes
+  const packed = new Uint8Array(wrappedKeyHex.match(/.{2}/g).map(h => parseInt(h, 16)));
+  const iv = packed.slice(0, 12);
+  const ct = packed.slice(12);
+
+  // Derive the same wrapping key the worker used
+  const rawSecret = new TextEncoder().encode(sessionSecret);
+  const material = await crypto.subtle.importKey('raw', rawSecret, 'PBKDF2', false, ['deriveKey']);
+  const wrapKey = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: new TextEncoder().encode(sessionId), iterations: 1000, hash: 'SHA-256' },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt'],
+  );
+
+  // Decrypt to get the real encryption key
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, wrapKey, ct);
+  return new TextDecoder().decode(decrypted);
 }
 
 export async function readArchive(blob, keyStr) {

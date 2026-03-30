@@ -1,30 +1,32 @@
-import { captureUrl, fetchResources, store, loadArchive, remove, WORKER_URL } from './storage.js?v=1';
+import { captureUrl, fetchResources, store, checkArchive, requestSession, loadArchive, remove, WORKER_URL } from './storage.js?v=2';
 import { assembleArchive } from './capture.js?v=1';
-import { createArchive, readArchive } from './pipeline.js?v=1';
+import { createArchive, readArchive, unwrapSessionKey } from './pipeline.js?v=2';
 
 const $ = s => document.querySelector(s);
 
 // --- URL fragment routing ---
-// #https://example.com         → view archived page
-// #a:https://example.com:token → admin view after creation
+// Plain text URLs in fragment (not encoded) for readability
+// #https://example.com              → view archived page (via session)
+// #a:https://example.com:token      → admin view after creation
 
 function parseFragment() {
-  const hash = location.hash.slice(1);
-  if (!hash) return { mode: 'home' };
+  const raw = location.hash.slice(1);
+  if (!raw) return { mode: 'home' };
 
-  // Admin mode: #a:url:deleteToken
-  if (hash.startsWith('a:')) {
-    const rest = hash.slice(2);
+  // Admin mode: #a:URL:deleteToken
+  // The delete token is a UUID (no colons), use lastIndexOf to split
+  if (raw.startsWith('a:')) {
+    const rest = raw.slice(2);
     const lastColon = rest.lastIndexOf(':');
     if (lastColon > 0) {
       const url = rest.slice(0, lastColon);
       const deleteToken = rest.slice(lastColon + 1);
-      return { mode: 'admin', url: decodeURIComponent(url), deleteToken };
+      return { mode: 'admin', url, deleteToken };
     }
   }
 
-  // View mode: #url
-  return { mode: 'view', url: decodeURIComponent(hash) };
+  // View mode: #URL (plain text, not encoded)
+  return { mode: 'view', url: raw };
 }
 
 const route = parseFragment();
@@ -62,7 +64,7 @@ function fmtSize(n) {
 }
 
 // ============================================================
-// HOME MODE — URL input, archive or view
+// HOME MODE — URL input: archive new or view existing
 // ============================================================
 
 if (route.mode === 'home') {
@@ -76,19 +78,21 @@ if (route.mode === 'home') {
       url = 'https://' + url;
     }
 
-    // First check if archive already exists
+    // Check if archive already exists
     status('checking for existing archive...');
+    logEntry(`checking ${url}`);
     try {
-      const existing = await loadArchive(url);
-      if (existing && existing.blob) {
-        // Archive exists — navigate to it
-        location.hash = '#' + encodeURIComponent(url);
+      const check = await checkArchive(url);
+      if (check.exists) {
+        logEntry(`archive found: "${check.title}" — redirecting`);
+        // Navigate to view (plain text URL in fragment)
+        location.hash = '#' + url;
         location.reload();
         return;
       }
-    } catch {
-      // Not found — proceed to capture
-    }
+    } catch { /* not found, continue */ }
+
+    logEntry('no existing archive — starting capture');
 
     // Open admin tab synchronously (before await)
     const adminTab = window.open('about:blank', '_blank');
@@ -117,9 +121,7 @@ if (route.mode === 'home') {
           const batch = allUrls.slice(i, i + 40);
           const result = await fetchResources(batch);
           Object.assign(allResources, result.resources || {});
-          if (result.failed?.length) {
-            logEntry(`${result.failed.length} resources failed`);
-          }
+          if (result.failed?.length) logEntry(`${result.failed.length} resources failed`);
         }
         logEntry(`fetched ${Object.keys(allResources).length} resources`);
       }
@@ -134,19 +136,14 @@ if (route.mode === 'home') {
       const { blob, key } = await createArchive(assembled);
       logEntry(`encrypted: ${fmtSize(blob.length)}`);
 
-      // Step 5: Store in R2 (key goes in metadata — all archives are public)
+      // Step 5: Store in R2
       logEntry('storing...');
       const title = captured.title || url;
-      const result = await store(blob, {
-        title,
-        url,
-        size: assembled.length,
-        key,
-      });
+      const result = await store(blob, { title, url, size: assembled.length, key });
       logEntry(`stored: ${result.id}`);
 
-      // Step 6: Open admin tab
-      const adminUrl = `${location.origin}/#a:${encodeURIComponent(url)}:${result.deleteToken}`;
+      // Step 6: Open admin tab (plain text URL in fragment)
+      const adminUrl = `${location.origin}/#a:${url}:${result.deleteToken}`;
       if (adminTab) {
         adminTab.location.href = adminUrl;
       } else {
@@ -166,7 +163,7 @@ if (route.mode === 'home') {
 }
 
 // ============================================================
-// VIEW MODE — display an archived page
+// VIEW MODE — session-based access (no key in URL)
 // ============================================================
 
 if (route.mode === 'view') {
@@ -180,24 +177,33 @@ if (route.mode === 'view') {
   const viewDate = $('#view-date');
   const viewIframe = $('#view-iframe');
 
-  status('loading archive...');
+  status('requesting session...');
 
-  loadArchive(route.url).then(async data => {
+  // Use session endpoint: worker wraps the key, client unwraps with session secret
+  requestSession(route.url).then(async data => {
     if (data.meta) {
       if (data.meta.title) viewTitle.textContent = data.meta.title;
       if (data.meta.url) viewUrl.textContent = data.meta.url;
       if (data.meta.capturedAt) viewDate.textContent = fmtDate(data.meta.capturedAt);
     }
 
+    status('unwrapping key...');
+    // Unwrap the real encryption key using the session secret
+    const realKey = await unwrapSessionKey(
+      data.session.wrappedKey,
+      data.session.secret,
+      data.session.id,
+    );
+
     status('decrypting...');
-    const html = await readArchive(data.blob, data.meta.key);
+    const html = await readArchive(data.blob, realKey);
     viewIframe.srcdoc = html;
     status('');
   }).catch(e => status(e.message, true));
 }
 
 // ============================================================
-// ADMIN MODE — after creation, shows archive + share link + delete
+// ADMIN MODE — direct access (has key from creation)
 // ============================================================
 
 if (route.mode === 'admin') {
@@ -217,10 +223,10 @@ if (route.mode === 'admin') {
 
   status('loading archive...');
 
-  // Share link = just the URL fragment (no key needed — key is in R2 metadata)
-  const shareUrl = `${location.origin}/#${encodeURIComponent(route.url)}`;
-  adminShareLink.value = shareUrl;
+  // Share link = plain text URL (no key, no encoding)
+  adminShareLink.value = `${location.origin}/#${route.url}`;
 
+  // Admin uses direct load (key comes from R2 metadata)
   loadArchive(route.url).then(async data => {
     if (data.meta) {
       if (data.meta.title) adminTitle.textContent = data.meta.title;
@@ -235,14 +241,12 @@ if (route.mode === 'admin') {
     status('');
   }).catch(e => status(e.message, true));
 
-  // Copy link
   adminCopyLink.addEventListener('click', () => {
     navigator.clipboard.writeText(adminShareLink.value);
     adminCopyLink.textContent = 'copied';
     setTimeout(() => adminCopyLink.textContent = 'copy', 1500);
   });
 
-  // Delete
   let deleted = false;
   adminDeleteBtn.addEventListener('click', async () => {
     adminDeleteBtn.disabled = true;
@@ -260,7 +264,6 @@ if (route.mode === 'admin') {
     }
   });
 
-  // Revoke delete token on tab close
   function revokeToken() {
     if (deleted) return;
     const body = JSON.stringify({ token: route.deleteToken });
