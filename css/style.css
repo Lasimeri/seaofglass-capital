@@ -1,0 +1,284 @@
+/* ============================================================
+   Variables
+   ============================================================ */
+
+:root {
+  --bg: #0a0a0f;
+  --surface: #12121a;
+  --border: #1e1e2e;
+  --text: #c4945a;
+  --text-dim: #8a6a3e;
+  --accent: #c4945a;
+  --accent-dim: #7a5c38;
+  --success: #4ade80;
+  --error: #f87171;
+  --warn: #fbbf24;
+  --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+
+/* ============================================================
+   Reset
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ============================================================
+   Layout
+   ============================================================ */
+
+body {
+  font-family: var(--mono);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.container { max-width: 900px; width: 100%; margin: 0 auto; }
+
+/* ============================================================
+   Header
+   ============================================================ */
+
+header { margin-bottom: 1.5rem; }
+h1 { font-size: 1.1rem; font-weight: 400; color: var(--text-dim); margin-bottom: 0.25rem; letter-spacing: 0.05em; }
+h1 span { color: var(--accent); }
+.subtitle { font-size: 0.7rem; color: var(--text-dim); opacity: 0.6; }
+
+/* ============================================================
+   Status
+   ============================================================ */
+
+.status { font-size: 0.7rem; color: var(--text-dim); min-height: 1.2em; margin-bottom: 0.75rem; }
+.status.error { color: var(--error); }
+
+/* ============================================================
+   Toolbar
+   ============================================================ */
+
+.toolbar {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap;
+}
+.toolbar-group { display: flex; gap: 0.5rem; align-items: center; }
+
+select, .toolbar input[type="text"] {
+  font-family: var(--mono); font-size: 0.7rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); padding: 0.4rem 0.6rem;
+  outline: none; cursor: pointer;
+}
+select:focus { border-color: var(--accent); }
+select option { background: var(--surface); color: var(--text); }
+
+/* ============================================================
+   Password input
+   ============================================================ */
+
+.password-row { margin-bottom: 0.75rem; }
+.password-row input {
+  font-family: var(--mono); font-size: 0.7rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); padding: 0.4rem 0.6rem;
+  width: 100%; max-width: 300px; outline: none;
+}
+.password-row input:focus { border-color: var(--accent); }
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+
+button {
+  font-family: var(--mono); font-size: 0.7rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); padding: 0.5rem 1rem;
+  cursor: pointer; transition: border-color 0.2s, color 0.2s;
+}
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: 0.3; cursor: not-allowed; }
+button.danger-btn { color: var(--error); }
+button.danger-btn:hover:not(:disabled) { border-color: var(--error); color: var(--error); }
+
+/* ============================================================
+   URL Input
+   ============================================================ */
+
+.url-input {
+  width: 100%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); padding: 1rem;
+  font-family: var(--mono); font-size: 0.8rem;
+  outline: none; line-height: 1.5;
+}
+.url-input::placeholder { color: var(--accent-dim); }
+.url-input:focus { border-color: var(--accent); }
+
+/* ============================================================
+   Log Box
+   ============================================================ */
+
+.log-box {
+  border: 1px solid var(--border);
+  max-height: 200px; overflow-y: auto;
+  background: var(--surface);
+  margin-bottom: 0.75rem;
+}
+.log-entry {
+  font-size: 0.65rem; color: var(--text-dim);
+  padding: 0.2rem 0.6rem; line-height: 1.4;
+}
+.log-entry .timestamp {
+  color: var(--accent-dim); margin-right: 0.5rem;
+}
+
+/* ============================================================
+   Archive Metadata Card
+   ============================================================ */
+
+.archive-meta {
+  border: 1px solid var(--border);
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+.archive-meta .meta-title {
+  font-size: 0.85rem; color: var(--text); margin-bottom: 0.25rem;
+}
+.archive-meta .meta-url {
+  font-size: 0.65rem; color: var(--text-dim);
+  word-break: break-all;
+}
+.archive-meta .meta-row {
+  font-size: 0.6rem; color: var(--text-dim);
+  display: flex; gap: 1rem; margin-top: 0.25rem;
+}
+
+/* ============================================================
+   Archive Frame (iframe container)
+   ============================================================ */
+
+.archive-frame {
+  border: 1px solid var(--border);
+  min-height: 400px;
+  resize: vertical;
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+.archive-frame iframe {
+  width: 100%; border: none; min-height: 400px;
+  display: block;
+}
+
+/* ============================================================
+   Progress Bar
+   ============================================================ */
+
+.progress-bar {
+  height: 2px;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+/* ============================================================
+   Share section
+   ============================================================ */
+
+.share-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.hint { font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0.5rem; }
+.share-row { display: flex; gap: 0.5rem; }
+.share-row input {
+  flex: 1; font-family: var(--mono); font-size: 0.65rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); padding: 0.5rem; outline: none;
+}
+.share-actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+
+/* ============================================================
+   Password decrypt prompt
+   ============================================================ */
+
+.decrypt-label { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem; }
+.decrypt-row { display: flex; gap: 0.5rem; max-width: 400px; }
+.decrypt-row input {
+  flex: 1; font-family: var(--mono); font-size: 0.7rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); padding: 0.5rem; outline: none;
+}
+.decrypt-row input:focus { border-color: var(--accent); }
+.error-text { font-size: 0.7rem; color: var(--error); margin-top: 0.5rem; }
+
+/* ============================================================
+   Size calculator bar
+   ============================================================ */
+
+.size-bar {
+  display: flex; gap: 1rem; padding: 0.5rem 0;
+  font-size: 0.6rem; color: var(--text-dim); flex-wrap: wrap;
+}
+.size-limit { margin-left: auto; }
+.size-limit.warn { color: var(--warn); }
+.size-limit.danger { color: var(--error); }
+
+/* ============================================================
+   Separator
+   ============================================================ */
+
+.sep { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+/* ============================================================
+   Public archive directory
+   ============================================================ */
+
+.dir-box { margin-top: 0; }
+.dir-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 0.5rem;
+}
+.dir-label { font-size: 0.65rem; color: var(--text-dim); letter-spacing: 0.1em; }
+.dir-body {
+  border: 1px solid var(--border);
+  max-height: 250px; overflow-y: auto;
+}
+.dir-entry {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 0.6rem 0.8rem; text-decoration: none;
+  border-bottom: 1px solid var(--border); transition: background 0.15s;
+}
+.dir-entry:last-child { border-bottom: none; }
+.dir-entry:hover { background: var(--surface); }
+.dir-title { font-size: 0.75rem; color: var(--text); }
+.dir-date { font-size: 0.6rem; color: var(--text-dim); flex-shrink: 0; margin-left: 1rem; }
+.dir-empty, .dir-loading {
+  padding: 1rem; font-size: 0.7rem; color: var(--text-dim); text-align: center;
+}
+.dir-loading { animation: pulse 1.5s ease-in-out infinite; }
+
+/* ============================================================
+   Animations
+   ============================================================ */
+
+@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+/* ============================================================
+   Utilities
+   ============================================================ */
+
+.hidden { display: none !important; }
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+
+@media (max-width: 600px) {
+  body { padding: 1.25rem; }
+  .toolbar { flex-direction: column; align-items: flex-start; }
+  .share-row { flex-direction: column; }
+  .share-actions { flex-direction: column; }
+  .size-bar { flex-direction: column; gap: 0.25rem; }
+  .size-limit { margin-left: 0; }
+  .dir-entry { flex-direction: column; gap: 0.25rem; }
+  .dir-date { margin-left: 0; }
+  .archive-frame { min-height: 250px; }
+  .archive-frame iframe { min-height: 250px; }
+}

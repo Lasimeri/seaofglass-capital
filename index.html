@@ -3,34 +3,79 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>sea of glass - capital</title>
+  <title>sea of glass - archive</title>
+  <meta property="og:title" content="sea of glass - archive">
+  <meta property="og:description" content="encrypted web archive — zero trust">
+  <meta property="og:type" content="website">
   <meta name="theme-color" content="#0a0a0f">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-      background: #0a0a0f;
-      color: #c4945a;
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      padding: 2rem;
-    }
-    .container { max-width: 500px; text-align: center; }
-    h1 { font-size: 1.1rem; font-weight: 400; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
-    h1 span { color: #8a6a3e; }
-    .status { font-size: 0.75rem; color: #8a6a3e; margin-bottom: 2rem; }
-    .link { font-size: 0.7rem; }
-    .link a { color: #c4945a; text-decoration: none; }
-    .link a:hover { text-decoration: underline; }
-  </style>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div class="container">
-    <h1><span>sea of glass</span> / capital</h1>
-    <p class="status">rebuilding</p>
-    <p class="link"><a href="https://seaof.glass">&larr; seaof.glass</a></p>
+
+    <!-- Header -->
+    <header>
+      <h1>archive <span>sea of glass</span></h1>
+      <p class="subtitle">encrypted web archive &mdash; zero trust</p>
+    </header>
+
+    <!-- Status -->
+    <div id="status" class="status"></div>
+
+    <!-- Home section — archive or view a URL -->
+    <div id="home-section">
+      <div class="capture-row">
+        <input type="text" id="url-input" class="url-input" placeholder="https://" autocomplete="off" spellcheck="false">
+        <button id="capture-btn">archive</button>
+      </div>
+
+      <!-- Progress log -->
+      <div class="log-box">
+        <div class="log-header">log</div>
+        <div id="log" class="log-body"></div>
+      </div>
+    </div>
+
+    <!-- View section — archived page display -->
+    <div id="view-section" class="hidden">
+      <div class="archive-meta">
+        <div id="view-title" class="meta-title"></div>
+        <div id="view-url" class="meta-url"></div>
+        <div id="view-date" class="meta-date"></div>
+      </div>
+      <div class="archive-frame">
+        <iframe id="view-iframe" sandbox="allow-same-origin"></iframe>
+      </div>
+    </div>
+
+    <!-- Admin section — after creation -->
+    <div id="admin-section" class="hidden">
+      <div class="archive-meta">
+        <div id="admin-title" class="meta-title"></div>
+        <div id="admin-url" class="meta-url"></div>
+        <div id="admin-date" class="meta-date"></div>
+      </div>
+
+      <div id="admin-content" class="hidden">
+        <div class="archive-frame">
+          <iframe id="admin-iframe" sandbox="allow-same-origin"></iframe>
+        </div>
+      </div>
+
+      <div class="share-section">
+        <p class="hint">share this link to view the archived page</p>
+        <div class="share-row">
+          <input type="text" id="admin-share-link" readonly>
+          <button id="admin-copy-link">copy</button>
+        </div>
+        <div class="share-actions">
+          <button id="admin-delete" class="danger-btn">delete archive</button>
+        </div>
+      </div>
+    </div>
+
   </div>
+
+  <script type="module" src="js/main.js?v=1"></script>
 </body>
 </html>
