@@ -1,6 +1,6 @@
-import { captureUrl, fetchResources, store, checkArchive, requestSession, loadArchive, remove, WORKER_URL } from './storage.js?v=2';
+import { captureUrl, fetchResources, store, checkArchive, requestSession, loadArchive, remove, WORKER_URL } from './storage.js?v=3';
 import { assembleArchive } from './capture.js?v=1';
-import { createArchive, readArchive, unwrapSessionKey } from './pipeline.js?v=2';
+import { createArchive, readArchive, unwrapSessionKey } from './pipeline.js?v=3';
 
 const $ = s => document.querySelector(s);
 
@@ -9,10 +9,11 @@ const $ = s => document.querySelector(s);
 // #https://example.com              → view archived page (via session)
 // #a:https://example.com:token      → admin view after creation
 
-// Normalize URL: re-add https:// if stripped
+// Normalize URL: re-add https:// if stripped, canonicalize via URL constructor
 function normalizeUrl(raw) {
-  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-  return 'https://' + raw;
+  const withProto = (raw.startsWith('http://') || raw.startsWith('https://')) ? raw : 'https://' + raw;
+  try { return new URL(withProto).href; } // canonical form: trailing slash, lowercase host
+  catch { return withProto; }
 }
 
 function parseFragment() {
