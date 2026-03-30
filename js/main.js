@@ -9,24 +9,30 @@ const $ = s => document.querySelector(s);
 // #https://example.com              → view archived page (via session)
 // #a:https://example.com:token      → admin view after creation
 
+// Normalize URL: re-add https:// if stripped
+function normalizeUrl(raw) {
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+  return 'https://' + raw;
+}
+
 function parseFragment() {
   const raw = location.hash.slice(1);
   if (!raw) return { mode: 'home' };
 
-  // Admin mode: #a:URL:deleteToken
-  // The delete token is a UUID (no colons), use lastIndexOf to split
+  // Admin mode: #a:domain.com/path:deleteToken
+  // Delete token is a UUID (8-4-4-4-12 hex), use lastIndexOf to split
   if (raw.startsWith('a:')) {
     const rest = raw.slice(2);
     const lastColon = rest.lastIndexOf(':');
     if (lastColon > 0) {
-      const url = rest.slice(0, lastColon);
+      const displayUrl = rest.slice(0, lastColon);
       const deleteToken = rest.slice(lastColon + 1);
-      return { mode: 'admin', url, deleteToken };
+      return { mode: 'admin', url: normalizeUrl(displayUrl), deleteToken };
     }
   }
 
-  // View mode: #URL (plain text, not encoded)
-  return { mode: 'view', url: raw };
+  // View mode: #domain.com/path (no protocol prefix)
+  return { mode: 'view', url: normalizeUrl(raw) };
 }
 
 const route = parseFragment();
@@ -44,7 +50,7 @@ function logEntry(msg) {
   const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
   const entry = document.createElement('div');
   entry.className = 'log-entry';
-  entry.textContent = `[${ts}] ${msg}`;
+  entry.innerHTML = `<span class="log-ts">${ts}</span>${msg.replace(/&/g,'&amp;').replace(/</g,'&lt;')}`;
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
 }
@@ -78,21 +84,23 @@ if (route.mode === 'home') {
       url = 'https://' + url;
     }
 
+    // Display URL = strip https:// for cleanliness
+    const displayUrl = url.replace(/^https?:\/\//, '');
+
     // Check if archive already exists
     status('checking for existing archive...');
-    logEntry(`checking ${url}`);
+    logEntry(`checking ${displayUrl}`);
     try {
       const check = await checkArchive(url);
       if (check.exists) {
-        logEntry(`archive found: "${check.title}" — redirecting`);
-        // Navigate to view (plain text URL in fragment)
-        location.hash = '#' + url;
-        location.reload();
+        logEntry(`archive found: "${check.title}" — opening`);
+        window.open(`${location.origin}/#${displayUrl}`, '_blank');
+        status('archive exists — opened in new tab');
         return;
       }
     } catch { /* not found, continue */ }
 
-    logEntry('no existing archive — starting capture');
+    logEntry('no existing archive — capturing');
 
     // Open admin tab synchronously (before await)
     const adminTab = window.open('about:blank', '_blank');
@@ -142,15 +150,15 @@ if (route.mode === 'home') {
       const result = await store(blob, { title, url, size: assembled.length, key });
       logEntry(`stored: ${result.id}`);
 
-      // Step 6: Open admin tab (plain text URL in fragment)
-      const adminUrl = `${location.origin}/#a:${url}:${result.deleteToken}`;
+      // Step 6: Open admin tab (display URL without https://)
+      const adminUrl = `${location.origin}/#a:${displayUrl}:${result.deleteToken}`;
       if (adminTab) {
         adminTab.location.href = adminUrl;
       } else {
         location.href = adminUrl;
       }
 
-      status('archived');
+      status('archived — opened in new tab');
       urlInput.value = '';
     } catch (e) {
       status(e.message, true);
@@ -223,8 +231,9 @@ if (route.mode === 'admin') {
 
   status('loading archive...');
 
-  // Share link = plain text URL (no key, no encoding)
-  adminShareLink.value = `${location.origin}/#${route.url}`;
+  // Share link = display URL (no https://)
+  const displayUrl = route.url.replace(/^https?:\/\//, '');
+  adminShareLink.value = `${location.origin}/#${displayUrl}`;
 
   // Admin uses direct load (key comes from R2 metadata)
   loadArchive(route.url).then(async data => {

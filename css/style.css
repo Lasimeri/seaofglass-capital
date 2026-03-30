@@ -113,21 +113,53 @@ button.danger-btn:hover:not(:disabled) { border-color: var(--error); color: var(
 .url-input:focus { border-color: var(--accent); }
 
 /* ============================================================
+   Capture Row
+   ============================================================ */
+
+.capture-row {
+  display: flex; gap: 0.5rem; margin-bottom: 0.75rem;
+}
+.capture-row .url-input { flex: 1; }
+
+/* ============================================================
    Log Box
    ============================================================ */
 
 .log-box {
   border: 1px solid var(--border);
-  max-height: 200px; overflow-y: auto;
-  background: var(--surface);
+  background: var(--bg);
   margin-bottom: 0.75rem;
+}
+.log-header {
+  font-size: 0.6rem; color: var(--text-dim); letter-spacing: 0.1em;
+  padding: 0.4rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.log-body {
+  max-height: 180px; overflow-y: auto;
+  padding: 0.4rem 0;
+}
+.log-body:empty::after {
+  content: 'waiting...';
+  display: block;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.6rem;
+  color: var(--accent-dim);
+  font-style: italic;
 }
 .log-entry {
   font-size: 0.65rem; color: var(--text-dim);
-  padding: 0.2rem 0.6rem; line-height: 1.4;
+  padding: 0.25rem 0.8rem; line-height: 1.5;
+  font-variant-numeric: tabular-nums;
 }
-.log-entry .timestamp {
-  color: var(--accent-dim); margin-right: 0.5rem;
+.log-entry:nth-child(even) {
+  background: rgba(255, 255, 255, 0.01);
+}
+.log-ts {
+  color: var(--accent-dim);
+  margin-right: 0.6rem;
+  user-select: none;
 }
 
 /* ============================================================
