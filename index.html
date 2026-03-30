@@ -4,46 +4,33 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>sea of glass - capital</title>
-  <meta property="og:title" content="sea of glass - capital">
-  <meta property="og:description" content="local LLM inference - zero trust, in-browser">
-  <meta property="og:type" content="website">
   <meta name="theme-color" content="#0a0a0f">
-  <link rel="stylesheet" href="css/style.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      background: #0a0a0f;
+      color: #c4945a;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 2rem;
+    }
+    .container { max-width: 500px; text-align: center; }
+    h1 { font-size: 1.1rem; font-weight: 400; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+    h1 span { color: #8a6a3e; }
+    .status { font-size: 0.75rem; color: #8a6a3e; margin-bottom: 2rem; }
+    .link { font-size: 0.7rem; }
+    .link a { color: #c4945a; text-decoration: none; }
+    .link a:hover { text-decoration: underline; }
+  </style>
 </head>
 <body>
   <div class="container">
     <h1><span>sea of glass</span> / capital</h1>
-    <p class="subtitle">local LLM inference - zero trust, in-browser</p>
-
-    <div id="status"></div>
-
-    <div class="engine-row">
-      <div class="engine-info">
-        <span id="engine-label">no engine loaded</span>
-        <span id="engine-stats"></span>
-      </div>
-      <div class="engine-controls">
-        <button id="load-btn" class="engine-btn">load model</button>
-      </div>
-    </div>
-
-    <div class="chat-frame">
-      <div id="chat-messages" class="chat-messages">
-        <div class="chat-empty">load an engine to start</div>
-      </div>
-    </div>
-
-    <div class="input-row">
-      <textarea id="chat-input" placeholder="type a message..." rows="2" disabled></textarea>
-      <button id="send-btn" disabled>send</button>
-    </div>
-
-    <div class="log-box">
-      <div class="log-header">log</div>
-      <div id="log" class="log-body"></div>
-    </div>
+    <p class="status">rebuilding</p>
+    <p class="link"><a href="https://seaof.glass">&larr; seaof.glass</a></p>
   </div>
-
-  <script type="module" src="js/main.js?v=3"></script>
 </body>
 </html>
