@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>sea of glass - archive</title>
   <meta property="og:title" content="sea of glass - archive">
-  <meta property="og:description" content="encrypted web archive — zero trust">
+  <meta property="og:description" content="encrypted web archive -- zero trust">
   <meta property="og:type" content="website">
   <meta name="theme-color" content="#0a0a0f">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; connect-src 'self' https://archive-tax.seaofglass.workers.dev; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src data:">
+  <meta name="referrer" content="no-referrer">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -16,13 +18,13 @@
     <!-- Header -->
     <header>
       <h1>archive <span>sea of glass</span></h1>
-      <p class="subtitle">encrypted web archive &mdash; zero trust</p>
+      <p class="subtitle">encrypted web archive -- zero trust</p>
     </header>
 
     <!-- Status -->
     <div id="status" class="status"></div>
 
-    <!-- Home section — archive or view a URL -->
+    <!-- Home section -- archive or view a URL -->
     <div id="home-section">
       <div class="capture-row">
         <input type="text" id="url-input" class="url-input" placeholder="https://" autocomplete="off" spellcheck="false">
@@ -36,7 +38,7 @@
       </div>
     </div>
 
-    <!-- View section — archived page display -->
+    <!-- View section -- archived page display -->
     <div id="view-section" class="hidden">
       <div class="archive-meta">
         <div id="view-title" class="meta-title"></div>
@@ -44,11 +46,11 @@
         <div id="view-date" class="meta-date"></div>
       </div>
       <div class="archive-frame">
-        <iframe id="view-iframe" sandbox="allow-same-origin"></iframe>
+        <iframe id="view-iframe" sandbox="" referrerpolicy="no-referrer"></iframe>
       </div>
     </div>
 
-    <!-- Admin section — after creation -->
+    <!-- Admin section -- after creation -->
     <div id="admin-section" class="hidden">
       <div class="archive-meta">
         <div id="admin-title" class="meta-title"></div>
@@ -58,7 +60,7 @@
 
       <div id="admin-content" class="hidden">
         <div class="archive-frame">
-          <iframe id="admin-iframe" sandbox="allow-same-origin"></iframe>
+          <iframe id="admin-iframe" sandbox="" referrerpolicy="no-referrer"></iframe>
         </div>
       </div>
 
@@ -76,6 +78,6 @@
 
   </div>
 
-  <script type="module" src="js/main.js?v=4"></script>
+  <script type="module" src="js/main.js?v=5"></script>
 </body>
 </html>
