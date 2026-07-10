@@ -3,6 +3,7 @@ import { assembleArchive } from './capture.js?v=2';
 import { createArchive, readArchive } from './pipeline.js?v=4';
 import { prepareForDisplay } from './sanitize.js?v=1';
 import { getCachedPublicKey, setupFromSeed } from './keys.js?v=1';
+import { downloadPDF } from './pdf.js?v=1';
 
 const $ = s => document.querySelector(s);
 
@@ -77,6 +78,62 @@ function fmtSize(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// --- PDF export ---
+
+// Faithful PDF: render the (already sanitized + CSP-locked) archive in a new
+// window and hand it to the browser's print engine. The injected archive CSP
+// (default-src 'none') plus stripped scripts mean nothing executes.
+function openAndPrint(preparedHtml) {
+  const w = window.open('', '_blank');
+  if (!w) { status('popup blocked; allow popups to print', true); return; }
+  w.document.open();
+  w.document.write(preparedHtml);
+  w.document.close();
+  const go = () => { try { w.focus(); w.print(); } catch { /* user can print manually */ } };
+  w.onload = go;
+  setTimeout(go, 800); // fallback if load already fired
+}
+
+// Plain-text extraction for the text-dump PDF. Block elements become newlines
+// so the dump stays readable; scripts/styles dropped.
+function extractText(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script, style, noscript').forEach(e => e.remove());
+  doc.querySelectorAll('p, div, br, li, tr, h1, h2, h3, h4, h5, h6, section, article, header, footer, blockquote')
+    .forEach(el => el.append('\n'));
+  const title = doc.querySelector('title')?.textContent?.trim() || '';
+  const body = (doc.body?.textContent || '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return (title ? title + '\n\n' : '') + body;
+}
+
+// Inject a two-button PDF toolbar above an archive iframe.
+function addPdfToolbar(iframeSel, rawHtml, preparedHtml) {
+  const iframe = $(iframeSel);
+  if (!iframe) return;
+  const frame = iframe.closest('.archive-frame') || iframe.parentElement;
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:.5rem;margin-bottom:.5rem;flex-wrap:wrap';
+  const mk = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'background:none;border:1px solid #1e1e2e;color:#c4945a;padding:.3rem .8rem;font-family:monospace;font-size:.7rem;cursor:pointer';
+    b.addEventListener('click', fn);
+    return b;
+  };
+  bar.append(
+    mk('save PDF (page)', () => openAndPrint(preparedHtml)),
+    mk('save PDF (text)', () => {
+      const t = extractText(rawHtml);
+      const title = (t.split('\n')[0] || 'archive').slice(0, 60);
+      downloadPDF(t, 'archive.pdf', { title });
+    }),
+  );
+  frame.parentElement.insertBefore(bar, frame);
 }
 
 // --- Seed entry (in-memory only) ---
@@ -235,7 +292,9 @@ async function displayArchive({ iframeSel, titleSel, urlSel, dateSel, onLoaded }
   status('decrypting...');
   try {
     const html = await readArchive(data.blob, seed);
-    $(iframeSel).srcdoc = prepareForDisplay(html);
+    const prepared = prepareForDisplay(html);
+    $(iframeSel).srcdoc = prepared;
+    addPdfToolbar(iframeSel, html, prepared);
     if (onLoaded) onLoaded();
     status('');
   } catch (e) {
