@@ -13,6 +13,7 @@ import initBrotli, {
   brotli_compress,
   brotli_decompress,
 } from './wasm/ink_brotli.js';
+import initSeed, { generate_key } from './wasm/ink_seed.js';
 
 let ready = null;
 
@@ -21,9 +22,16 @@ export function initWasm() {
     ready = Promise.all([
       initPgp(new URL('./wasm/ink_pgp_bg.wasm', import.meta.url)),
       initBrotli(new URL('./wasm/ink_brotli_bg.wasm', import.meta.url)),
+      initSeed(new URL('./wasm/ink_seed_bg.wasm', import.meta.url)),
     ]);
   }
   return ready;
+}
+
+// Fresh per-archive key (256-bit, base64url) from the Rust CSPRNG.
+export async function generateKey() {
+  await initWasm();
+  return generate_key();
 }
 
 export async function brotliCompress(bytes, quality = 11) {

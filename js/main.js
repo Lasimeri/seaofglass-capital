@@ -1,24 +1,25 @@
 import { captureUrl, fetchResources, store, checkArchive, loadArchive, remove, WORKER_URL } from './storage.js?v=4';
 import { assembleArchive } from './capture.js?v=2';
-import { createArchive, readArchive } from './pipeline.js?v=4';
+import { createArchive, readArchive } from './pipeline.js?v=5';
 import { prepareForDisplay } from './sanitize.js?v=1';
-import { getCachedPublicKey, setupFromSeed } from './keys.js?v=1';
+import { generateKey, pubkeyFromSeed } from './wasm.js?v=2';
 import { downloadPDF } from './pdf.js?v=1';
 
 const $ = s => document.querySelector(s);
 
 // --- URL fragment routing ---
-// #https://example.com              → view archived page
-// #a:https://example.com:token      → admin view after creation
+// Each archive has its OWN key, carried in the #fragment (never sent to the
+// server, so the host cannot decrypt). The link IS the decryption capability.
+//   #k:<seed>:<displayUrl>              → view/share (key in link)
+//   #a:<seed>:<token>:<displayUrl>      → admin (key + delete token, creator)
+// seed and token are colon-free (base64url / UUID), so index splitting is exact.
 
-// Normalize URL: re-add https:// if stripped, canonicalize via URL constructor.
-// Returns null for anything that is not plain http(s).
 function normalizeUrl(raw) {
   const withProto = (raw.startsWith('http://') || raw.startsWith('https://')) ? raw : 'https://' + raw;
   try {
     const u = new URL(withProto);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-    return u.href; // canonical form: trailing slash, lowercase host
+    return u.href;
   } catch { return null; }
 }
 
@@ -26,21 +27,31 @@ function parseFragment() {
   const raw = location.hash.slice(1);
   if (!raw) return { mode: 'home' };
 
-  // Admin mode: #a:domain.com/path:deleteToken
   if (raw.startsWith('a:')) {
     const rest = raw.slice(2);
-    const lastColon = rest.lastIndexOf(':');
-    if (lastColon > 0) {
-      const url = normalizeUrl(rest.slice(0, lastColon));
-      const deleteToken = rest.slice(lastColon + 1);
-      if (url) return { mode: 'admin', url, deleteToken };
+    const i1 = rest.indexOf(':');
+    const i2 = rest.indexOf(':', i1 + 1);
+    if (i1 > 0 && i2 > i1) {
+      const seed = rest.slice(0, i1);
+      const deleteToken = rest.slice(i1 + 1, i2);
+      const url = normalizeUrl(rest.slice(i2 + 1));
+      if (url) return { mode: 'admin', url, seed, deleteToken };
     }
     return { mode: 'home' };
   }
 
-  // View mode: #domain.com/path (no protocol prefix)
-  const url = normalizeUrl(raw);
-  return url ? { mode: 'view', url } : { mode: 'home' };
+  if (raw.startsWith('k:')) {
+    const rest = raw.slice(2);
+    const i1 = rest.indexOf(':');
+    if (i1 > 0) {
+      const seed = rest.slice(0, i1);
+      const url = normalizeUrl(rest.slice(i1 + 1));
+      if (url) return { mode: 'view', url, seed };
+    }
+    return { mode: 'home' };
+  }
+
+  return { mode: 'home' };
 }
 
 const route = parseFragment();
@@ -61,7 +72,7 @@ function logEntry(msg) {
   const tsSpan = document.createElement('span');
   tsSpan.className = 'log-ts';
   tsSpan.textContent = ts;
-  entry.append(tsSpan, msg); // msg lands as a text node, never parsed as HTML
+  entry.append(tsSpan, msg);
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
 }
@@ -82,9 +93,6 @@ function fmtSize(n) {
 
 // --- PDF export ---
 
-// Faithful PDF: render the (already sanitized + CSP-locked) archive in a new
-// window and hand it to the browser's print engine. The injected archive CSP
-// (default-src 'none') plus stripped scripts mean nothing executes.
 function openAndPrint(preparedHtml) {
   const w = window.open('', '_blank');
   if (!w) { status('popup blocked; allow popups to print', true); return; }
@@ -93,11 +101,9 @@ function openAndPrint(preparedHtml) {
   w.document.close();
   const go = () => { try { w.focus(); w.print(); } catch { /* user can print manually */ } };
   w.onload = go;
-  setTimeout(go, 800); // fallback if load already fired
+  setTimeout(go, 800);
 }
 
-// Plain-text extraction for the text-dump PDF. Block elements become newlines
-// so the dump stays readable; scripts/styles dropped.
 function extractText(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   doc.querySelectorAll('script, style, noscript').forEach(e => e.remove());
@@ -105,13 +111,10 @@ function extractText(html) {
     .forEach(el => el.append('\n'));
   const title = doc.querySelector('title')?.textContent?.trim() || '';
   const body = (doc.body?.textContent || '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   return (title ? title + '\n\n' : '') + body;
 }
 
-// Inject a two-button PDF toolbar above an archive iframe.
 function addPdfToolbar(iframeSel, rawHtml, preparedHtml) {
   const iframe = $(iframeSel);
   if (!iframe) return;
@@ -136,58 +139,8 @@ function addPdfToolbar(iframeSel, rawHtml, preparedHtml) {
   frame.parentElement.insertBefore(bar, frame);
 }
 
-// --- Seed entry (in-memory only) ---
-// The seed is never written to storage; it lives only in the resolved promise
-// value and is passed straight into WASM, then dropped.
-function promptSeed(message) {
-  return new Promise((resolve, reject) => {
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem';
-    const box = document.createElement('div');
-    box.style.cssText = 'background:#12121a;border:1px solid #1e1e2e;padding:1.25rem;max-width:440px;width:100%;font-family:monospace;color:#c4945a';
-    const label = document.createElement('div');
-    label.textContent = message || 'Enter your seed';
-    label.style.cssText = 'font-size:.72rem;line-height:1.5;margin-bottom:.75rem;color:#8a6a3e';
-    const input = document.createElement('input');
-    input.type = 'password';
-    input.autocomplete = 'off';
-    input.autocapitalize = 'off';
-    input.spellcheck = false;
-    input.style.cssText = 'width:100%;background:#0a0a0f;border:1px solid #1e1e2e;color:#c4945a;padding:.5rem;font:inherit;font-size:.8rem;outline:none;margin-bottom:.75rem';
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:.5rem;justify-content:flex-end';
-    const cancel = document.createElement('button');
-    cancel.textContent = 'cancel';
-    const ok = document.createElement('button');
-    ok.textContent = 'unlock';
-    for (const b of [cancel, ok]) b.style.cssText = 'background:none;border:1px solid #1e1e2e;color:#c4945a;padding:.3rem .8rem;font:inherit;font-size:.7rem;cursor:pointer';
-    function done(val) { overlay.remove(); if (val == null) reject(new Error('cancelled')); else resolve(val); }
-    ok.addEventListener('click', () => done(input.value));
-    cancel.addEventListener('click', () => done(null));
-    input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') done(input.value);
-      else if (e.key === 'Escape') done(null);
-    });
-    row.append(cancel, ok);
-    box.append(label, input, row);
-    overlay.append(box);
-    document.body.append(overlay);
-    input.focus();
-  });
-}
-
-// Return the archive public key, deriving it from the seed on first use.
-// Only the public key is cached; the seed is not retained.
-async function ensurePublicKey() {
-  const cached = getCachedPublicKey();
-  if (cached) return cached;
-  const seed = await promptSeed('First archive on this device: enter your seed. It derives your public key (cached locally) and is then discarded. The seed itself is never stored.');
-  status('deriving public key...');
-  return setupFromSeed(seed);
-}
-
 // ============================================================
-// HOME MODE -- URL input: archive new or view existing
+// HOME MODE -- archive a URL (mints a unique per-page key)
 // ============================================================
 
 if (route.mode === 'home') {
@@ -202,31 +155,20 @@ if (route.mode === 'home') {
 
     const displayUrl = url.replace(/^https?:\/\//, '');
 
-    // Check if archive already exists
-    status('checking for existing archive...');
-    logEntry(`checking ${displayUrl}`);
+    // This page's unique key + its public key.
+    let seed, publicKey;
+    status('generating key...');
     try {
-      const check = await checkArchive(url);
-      if (check.exists) {
-        logEntry(`archive found: "${check.title}" -- opening`);
-        window.open(`${location.origin}/#${displayUrl}`, '_blank');
-        status('archive exists, opened in new tab');
-        return;
-      }
-    } catch { /* not found, continue */ }
+      seed = await generateKey();
+      publicKey = await pubkeyFromSeed(seed);
+    } catch (e) { return status('key generation failed: ' + e.message, true); }
 
-    // Resolve the public key up front (may prompt for the seed once).
-    let publicKey;
-    try { publicKey = await ensurePublicKey(); }
-    catch { return status('cancelled', true); }
-
-    logEntry('no existing archive, capturing');
+    logEntry('capturing');
     const adminTab = window.open('about:blank', '_blank');
     captureBtn.disabled = true;
     status('capturing...');
 
     try {
-      // Step 1: Fetch HTML + worker-side resource discovery (seed list)
       logEntry(`fetching ${url}`);
       const captured = await captureUrl(url);
       const seedUrls = [
@@ -236,24 +178,21 @@ if (route.mode === 'home') {
       ];
       logEntry(`got HTML: ${fmtSize(captured.html.length)} | ${seedUrls.length} seed resources`);
 
-      // Step 2: Sanitize, discover + fetch all resources, inline everything
       logEntry('assembling (discovering + fetching resources)...');
       const assembled = await assembleArchive(captured.html, captured.baseUrl, seedUrls, fetchResources, logEntry);
       logEntry(`assembled: ${fmtSize(assembled.length)}`);
 
-      // Step 3: brotli compress -> PGP encrypt (to your public key)
       logEntry('compressing + encrypting...');
       const blob = await createArchive(assembled, publicKey);
       logEntry(`encrypted: ${fmtSize(blob.length)}`);
 
-      // Step 4: Store ciphertext in R2 (no key leaves the device)
       logEntry('storing...');
       const title = captured.title || url;
       const result = await store(blob, { title, url, size: assembled.length });
       logEntry(`stored: ${result.id}`);
 
-      // Step 5: Open admin tab
-      const adminUrl = `${location.origin}/#a:${displayUrl}:${result.deleteToken}`;
+      // Admin link carries the key + delete token; view/share link carries the key.
+      const adminUrl = `${location.origin}/#a:${seed}:${result.deleteToken}:${displayUrl}`;
       if (adminTab) adminTab.location.href = adminUrl;
       else location.href = adminUrl;
 
@@ -270,7 +209,7 @@ if (route.mode === 'home') {
 }
 
 // ============================================================
-// VIEW / ADMIN -- load ciphertext, decrypt on-device with the seed
+// VIEW / ADMIN -- key comes from the link fragment
 // ============================================================
 
 async function displayArchive({ iframeSel, titleSel, urlSel, dateSel, onLoaded }) {
@@ -285,20 +224,16 @@ async function displayArchive({ iframeSel, titleSel, urlSel, dateSel, onLoaded }
     if (data.meta.capturedAt && dateSel) $(dateSel).textContent = fmtDate(data.meta.capturedAt);
   }
 
-  let seed;
-  try { seed = await promptSeed('Enter your seed to decrypt this archive. It regenerates your private key on this device; a wrong seed simply fails.'); }
-  catch { return status('locked', true); }
-
   status('decrypting...');
   try {
-    const html = await readArchive(data.blob, seed);
+    const html = await readArchive(data.blob, route.seed);
     const prepared = prepareForDisplay(html);
     $(iframeSel).srcdoc = prepared;
     addPdfToolbar(iframeSel, html, prepared);
     if (onLoaded) onLoaded();
     status('');
   } catch (e) {
-    status('decryption failed (wrong seed?)', true);
+    status('decryption failed (bad or missing key in link)', true);
   }
 }
 
@@ -323,7 +258,8 @@ if (route.mode === 'admin') {
   const adminContent = $('#admin-content');
 
   const displayUrl = route.url.replace(/^https?:\/\//, '');
-  adminShareLink.value = `${location.origin}/#${displayUrl}`;
+  // Share link carries the key (no delete token).
+  adminShareLink.value = `${location.origin}/#k:${route.seed}:${displayUrl}`;
 
   displayArchive({
     iframeSel: '#admin-iframe',
