@@ -39,16 +39,8 @@ export async function checkArchive(url) {
   return res.json();
 }
 
-// Request a session to access an archive (5min TTL, single-use wrapped key)
-export async function requestSession(url) {
-  const res = await fetch(`${WORKER_URL}/session?url=${encodeURIComponent(url)}`, {
-    method: 'POST',
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'session failed');
-  return res.json();
-}
-
-// Direct archive load (used by admin tab which has the key from creation)
+// Load an archive's ciphertext blob + non-secret metadata. No key is returned;
+// decryption happens on-device from the seed.
 export async function loadArchive(url) {
   const res = await fetch(`${WORKER_URL}/archive?url=${encodeURIComponent(url)}`);
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'not found');

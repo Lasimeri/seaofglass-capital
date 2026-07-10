@@ -1,13 +1,13 @@
-import { captureUrl, fetchResources, store, checkArchive, requestSession, loadArchive, remove, WORKER_URL } from './storage.js?v=3';
+import { captureUrl, fetchResources, store, checkArchive, loadArchive, remove, WORKER_URL } from './storage.js?v=4';
 import { assembleArchive } from './capture.js?v=2';
-import { createArchive, readArchive, unwrapSessionKey } from './pipeline.js?v=3';
+import { createArchive, readArchive } from './pipeline.js?v=4';
 import { prepareForDisplay } from './sanitize.js?v=1';
+import { getCachedPublicKey, setupFromSeed } from './keys.js?v=1';
 
 const $ = s => document.querySelector(s);
 
 // --- URL fragment routing ---
-// Plain text URLs in fragment (not encoded) for readability
-// #https://example.com              → view archived page (via session)
+// #https://example.com              → view archived page
 // #a:https://example.com:token      → admin view after creation
 
 // Normalize URL: re-add https:// if stripped, canonicalize via URL constructor.
@@ -26,7 +26,6 @@ function parseFragment() {
   if (!raw) return { mode: 'home' };
 
   // Admin mode: #a:domain.com/path:deleteToken
-  // Delete token is a UUID (8-4-4-4-12 hex), use lastIndexOf to split
   if (raw.startsWith('a:')) {
     const rest = raw.slice(2);
     const lastColon = rest.lastIndexOf(':');
@@ -80,6 +79,56 @@ function fmtSize(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// --- Seed entry (in-memory only) ---
+// The seed is never written to storage; it lives only in the resolved promise
+// value and is passed straight into WASM, then dropped.
+function promptSeed(message) {
+  return new Promise((resolve, reject) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#12121a;border:1px solid #1e1e2e;padding:1.25rem;max-width:440px;width:100%;font-family:monospace;color:#c4945a';
+    const label = document.createElement('div');
+    label.textContent = message || 'Enter your seed';
+    label.style.cssText = 'font-size:.72rem;line-height:1.5;margin-bottom:.75rem;color:#8a6a3e';
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.autocomplete = 'off';
+    input.autocapitalize = 'off';
+    input.spellcheck = false;
+    input.style.cssText = 'width:100%;background:#0a0a0f;border:1px solid #1e1e2e;color:#c4945a;padding:.5rem;font:inherit;font-size:.8rem;outline:none;margin-bottom:.75rem';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:.5rem;justify-content:flex-end';
+    const cancel = document.createElement('button');
+    cancel.textContent = 'cancel';
+    const ok = document.createElement('button');
+    ok.textContent = 'unlock';
+    for (const b of [cancel, ok]) b.style.cssText = 'background:none;border:1px solid #1e1e2e;color:#c4945a;padding:.3rem .8rem;font:inherit;font-size:.7rem;cursor:pointer';
+    function done(val) { overlay.remove(); if (val == null) reject(new Error('cancelled')); else resolve(val); }
+    ok.addEventListener('click', () => done(input.value));
+    cancel.addEventListener('click', () => done(null));
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') done(input.value);
+      else if (e.key === 'Escape') done(null);
+    });
+    row.append(cancel, ok);
+    box.append(label, input, row);
+    overlay.append(box);
+    document.body.append(overlay);
+    input.focus();
+  });
+}
+
+// Return the archive public key, deriving it from the seed on first use.
+// Only the public key is cached; the seed is not retained.
+async function ensurePublicKey() {
+  const cached = getCachedPublicKey();
+  if (cached) return cached;
+  const seed = await promptSeed('First archive on this device: enter your seed. It derives your public key (cached locally) and is then discarded. The seed itself is never stored.');
+  status('deriving public key...');
+  return setupFromSeed(seed);
+}
+
 // ============================================================
 // HOME MODE -- URL input: archive new or view existing
 // ============================================================
@@ -94,7 +143,6 @@ if (route.mode === 'home') {
     const url = normalizeUrl(input);
     if (!url) return status('invalid URL (http/https only)', true);
 
-    // Display URL = strip https:// for cleanliness
     const displayUrl = url.replace(/^https?:\/\//, '');
 
     // Check if archive already exists
@@ -110,11 +158,13 @@ if (route.mode === 'home') {
       }
     } catch { /* not found, continue */ }
 
+    // Resolve the public key up front (may prompt for the seed once).
+    let publicKey;
+    try { publicKey = await ensurePublicKey(); }
+    catch { return status('cancelled', true); }
+
     logEntry('no existing archive, capturing');
-
-    // Open admin tab synchronously (before await)
     const adminTab = window.open('about:blank', '_blank');
-
     captureBtn.disabled = true;
     status('capturing...');
 
@@ -134,24 +184,21 @@ if (route.mode === 'home') {
       const assembled = await assembleArchive(captured.html, captured.baseUrl, seedUrls, fetchResources, logEntry);
       logEntry(`assembled: ${fmtSize(assembled.length)}`);
 
-      // Step 3: Compress + encrypt
+      // Step 3: brotli compress -> PGP encrypt (to your public key)
       logEntry('compressing + encrypting...');
-      const { blob, key } = await createArchive(assembled);
+      const blob = await createArchive(assembled, publicKey);
       logEntry(`encrypted: ${fmtSize(blob.length)}`);
 
-      // Step 4: Store in R2
+      // Step 4: Store ciphertext in R2 (no key leaves the device)
       logEntry('storing...');
       const title = captured.title || url;
-      const result = await store(blob, { title, url, size: assembled.length, key });
+      const result = await store(blob, { title, url, size: assembled.length });
       logEntry(`stored: ${result.id}`);
 
-      // Step 5: Open admin tab (display URL without https://)
+      // Step 5: Open admin tab
       const adminUrl = `${location.origin}/#a:${displayUrl}:${result.deleteToken}`;
-      if (adminTab) {
-        adminTab.location.href = adminUrl;
-      } else {
-        location.href = adminUrl;
-      }
+      if (adminTab) adminTab.location.href = adminUrl;
+      else location.href = adminUrl;
 
       status('archived, opened in new tab');
       urlInput.value = '';
@@ -166,84 +213,66 @@ if (route.mode === 'home') {
 }
 
 // ============================================================
-// VIEW MODE -- session-based access (no key in URL)
+// VIEW / ADMIN -- load ciphertext, decrypt on-device with the seed
 // ============================================================
 
-if (route.mode === 'view') {
-  const homeSection = $('#home-section');
-  const viewSection = $('#view-section');
-  homeSection.classList.add('hidden');
-  viewSection.classList.remove('hidden');
+async function displayArchive({ iframeSel, titleSel, urlSel, dateSel, onLoaded }) {
+  status('loading archive...');
+  let data;
+  try { data = await loadArchive(route.url); }
+  catch (e) { return status(e.message, true); }
 
-  const viewTitle = $('#view-title');
-  const viewUrl = $('#view-url');
-  const viewDate = $('#view-date');
-  const viewIframe = $('#view-iframe');
+  if (data.meta) {
+    if (data.meta.title && titleSel) $(titleSel).textContent = data.meta.title;
+    if (data.meta.url && urlSel) $(urlSel).textContent = data.meta.url;
+    if (data.meta.capturedAt && dateSel) $(dateSel).textContent = fmtDate(data.meta.capturedAt);
+  }
 
-  status('requesting session...');
+  let seed;
+  try { seed = await promptSeed('Enter your seed to decrypt this archive. It regenerates your private key on this device; a wrong seed simply fails.'); }
+  catch { return status('locked', true); }
 
-  // Use session endpoint: worker wraps the key, client unwraps with session secret
-  requestSession(route.url).then(async data => {
-    if (data.meta) {
-      if (data.meta.title) viewTitle.textContent = data.meta.title;
-      if (data.meta.url) viewUrl.textContent = data.meta.url;
-      if (data.meta.capturedAt) viewDate.textContent = fmtDate(data.meta.capturedAt);
-    }
-
-    status('unwrapping key...');
-    // Unwrap the real encryption key using the session secret
-    const realKey = await unwrapSessionKey(
-      data.session.wrappedKey,
-      data.session.secret,
-      data.session.id,
-    );
-
-    status('decrypting...');
-    const html = await readArchive(data.blob, realKey);
-    viewIframe.srcdoc = prepareForDisplay(html);
+  status('decrypting...');
+  try {
+    const html = await readArchive(data.blob, seed);
+    $(iframeSel).srcdoc = prepareForDisplay(html);
+    if (onLoaded) onLoaded();
     status('');
-  }).catch(e => status(e.message, true));
+  } catch (e) {
+    status('decryption failed (wrong seed?)', true);
+  }
 }
 
-// ============================================================
-// ADMIN MODE -- direct access (has key from creation)
-// ============================================================
+if (route.mode === 'view') {
+  $('#home-section').classList.add('hidden');
+  $('#view-section').classList.remove('hidden');
+  displayArchive({
+    iframeSel: '#view-iframe',
+    titleSel: '#view-title',
+    urlSel: '#view-url',
+    dateSel: '#view-date',
+  });
+}
 
 if (route.mode === 'admin') {
-  const homeSection = $('#home-section');
-  const adminSection = $('#admin-section');
-  homeSection.classList.add('hidden');
-  adminSection.classList.remove('hidden');
+  $('#home-section').classList.add('hidden');
+  $('#admin-section').classList.remove('hidden');
 
-  const adminTitle = $('#admin-title');
-  const adminUrl = $('#admin-url');
-  const adminDate = $('#admin-date');
-  const adminIframe = $('#admin-iframe');
   const adminShareLink = $('#admin-share-link');
   const adminCopyLink = $('#admin-copy-link');
   const adminDeleteBtn = $('#admin-delete');
   const adminContent = $('#admin-content');
 
-  status('loading archive...');
-
-  // Share link = display URL (no https://)
   const displayUrl = route.url.replace(/^https?:\/\//, '');
   adminShareLink.value = `${location.origin}/#${displayUrl}`;
 
-  // Admin uses direct load (key comes from R2 metadata)
-  loadArchive(route.url).then(async data => {
-    if (data.meta) {
-      if (data.meta.title) adminTitle.textContent = data.meta.title;
-      if (data.meta.url) adminUrl.textContent = data.meta.url;
-      if (data.meta.capturedAt) adminDate.textContent = fmtDate(data.meta.capturedAt);
-    }
-
-    status('decrypting...');
-    const html = await readArchive(data.blob, data.meta.key);
-    adminIframe.srcdoc = prepareForDisplay(html);
-    adminContent.classList.remove('hidden');
-    status('');
-  }).catch(e => status(e.message, true));
+  displayArchive({
+    iframeSel: '#admin-iframe',
+    titleSel: '#admin-title',
+    urlSel: '#admin-url',
+    dateSel: '#admin-date',
+    onLoaded: () => adminContent.classList.remove('hidden'),
+  });
 
   adminCopyLink.addEventListener('click', () => {
     navigator.clipboard.writeText(adminShareLink.value);
@@ -268,10 +297,9 @@ if (route.mode === 'admin') {
     }
   });
 
-  function revokeToken() {
+  window.addEventListener('pagehide', () => {
     if (deleted) return;
     const body = JSON.stringify({ token: route.deleteToken });
     navigator.sendBeacon(`${WORKER_URL}/revoke?url=${encodeURIComponent(route.url)}`, new Blob([body], { type: 'application/json' }));
-  }
-  window.addEventListener('pagehide', revokeToken);
+  });
 }
