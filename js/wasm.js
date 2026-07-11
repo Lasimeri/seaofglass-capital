@@ -8,21 +8,21 @@ import initPgp, {
   pgp_encrypt,
   pgp_pubkey_from_seed,
   pgp_decrypt_with_seed,
-} from './wasm/ink_pgp.js';
+} from './wasm/ink_pgp.js?v=2';
 import initBrotli, {
   brotli_compress,
   brotli_decompress,
-} from './wasm/ink_brotli.js';
-import initSeed, { generate_key } from './wasm/ink_seed.js';
+} from './wasm/ink_brotli.js?v=2';
+import initSeed, { generate_key } from './wasm/ink_seed.js?v=2';
 
 let ready = null;
 
 export function initWasm() {
   if (!ready) {
     ready = Promise.all([
-      initPgp(new URL('./wasm/ink_pgp_bg.wasm', import.meta.url)),
-      initBrotli(new URL('./wasm/ink_brotli_bg.wasm', import.meta.url)),
-      initSeed(new URL('./wasm/ink_seed_bg.wasm', import.meta.url)),
+      initPgp(new URL('./wasm/ink_pgp_bg.wasm?v=2', import.meta.url)),
+      initBrotli(new URL('./wasm/ink_brotli_bg.wasm?v=2', import.meta.url)),
+      initSeed(new URL('./wasm/ink_seed_bg.wasm?v=2', import.meta.url)),
     ]);
   }
   return ready;

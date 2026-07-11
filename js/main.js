@@ -1,8 +1,8 @@
 import { captureUrl, fetchResources, store, checkArchive, loadArchive, remove, WORKER_URL } from './storage.js?v=4';
 import { assembleArchive } from './capture.js?v=2';
-import { createArchive, readArchive } from './pipeline.js?v=5';
+import { createArchive, readArchive } from './pipeline.js?v=6';
 import { prepareForDisplay } from './sanitize.js?v=1';
-import { generateKey, pubkeyFromSeed } from './wasm.js?v=2';
+import { generateKey, pubkeyFromSeed } from './wasm.js?v=3';
 import { downloadPDF } from './pdf.js?v=1';
 
 const $ = s => document.querySelector(s);
@@ -233,7 +233,7 @@ async function displayArchive({ iframeSel, titleSel, urlSel, dateSel, onLoaded }
     if (onLoaded) onLoaded();
     status('');
   } catch (e) {
-    status('decryption failed (bad or missing key in link)', true);
+    status('could not decrypt — this link may be from an older version; re-archive the page', true);
   }
 }
 

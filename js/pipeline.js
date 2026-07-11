@@ -7,7 +7,7 @@
 // which is used in-memory to regenerate the private key and is never stored or
 // transmitted. The host stores only opaque ciphertext.
 
-import { brotliCompress, brotliDecompress, pgpEncrypt, decryptWithSeed } from './wasm.js?v=2';
+import { brotliCompress, brotliDecompress, pgpEncrypt, decryptWithSeed } from './wasm.js?v=3';
 
 // Chunked base64 for large arrays (avoids call-stack overflow on big archives).
 function arrayToBase64(arr) {
