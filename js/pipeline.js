@@ -1,15 +1,15 @@
 // Zero-trust archive pipeline.
-//   Create: html -> brotli q11 -> PGP encrypt (public key) -> base64
-//   Read:   base64 -> PGP decrypt (seed regenerates the private key in WASM)
-//                  -> brotli decompress -> html
+//   Create: html -> brotli q11 -> AES-256-GCM(key = SHA-256(seed)) -> base64
+//   Read:   base64 -> AES-256-GCM decrypt -> brotli decompress -> html
 //
-// Encryption needs only the public key (no secret). Decryption needs the seed,
-// which is used in-memory to regenerate the private key and is never stored or
-// transmitted. The host stores only opaque ciphertext.
+// The per-archive seed rides in the link's #fragment (never sent to the server,
+// so the host cannot decrypt). The key is derived on-device from the seed via
+// SHA-256; a wrong seed fails the GCM auth tag. AES-GCM handles any size.
+//
+// Blob format (base64 of): [12-byte iv][aes-gcm ciphertext+tag]
 
-import { brotliCompress, brotliDecompress, pgpEncrypt, decryptWithSeed } from './wasm.js?v=3';
+import { brotliCompress, brotliDecompress } from './wasm.js?v=4';
 
-// Chunked base64 for large arrays (avoids call-stack overflow on big archives).
 function arrayToBase64(arr) {
   let binary = '';
   const chunk = 8192;
@@ -27,20 +27,30 @@ function base64ToArray(b64) {
   return out;
 }
 
-// html + armored public key -> base64 ciphertext blob for the worker.
-export async function createArchive(html, publicKey) {
-  if (!publicKey) throw new Error('missing public key');
-  const compressed = await brotliCompress(new TextEncoder().encode(html), 11);
-  const ciphertext = await pgpEncrypt(compressed, publicKey);
-  return arrayToBase64(ciphertext);
+async function aesKeyFromSeed(seed, usage) {
+  const material = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('capital-aes-v1' + seed));
+  return crypto.subtle.importKey('raw', material, 'AES-GCM', false, [usage]);
 }
 
-// base64 ciphertext blob + seed -> html. Seed regenerates the private key
-// on-device; a wrong seed throws (PGP decryption fails).
+export async function createArchive(html, seed) {
+  if (!seed) throw new Error('missing key');
+  const compressed = await brotliCompress(new TextEncoder().encode(html), 11);
+  const key = await aesKeyFromSeed(seed, 'encrypt');
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, compressed));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv);
+  out.set(ct, 12);
+  return arrayToBase64(out);
+}
+
 export async function readArchive(blob, seed) {
-  if (!seed) throw new Error('missing seed');
-  const ciphertext = base64ToArray(blob);
-  const compressed = await decryptWithSeed(ciphertext, seed);
+  if (!seed) throw new Error('missing key');
+  const buf = base64ToArray(blob);
+  const iv = buf.subarray(0, 12);
+  const ct = buf.subarray(12);
+  const key = await aesKeyFromSeed(seed, 'decrypt');
+  const compressed = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct));
   const html = await brotliDecompress(compressed);
   return new TextDecoder().decode(html);
 }

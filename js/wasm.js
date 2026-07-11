@@ -1,18 +1,11 @@
-// WASM bootstrap for the archive crypto pipeline.
-// Two wasm-bindgen (--target web) modules, built from audited source:
-//   ink-pgp    — seed-derived Ed25519/X25519 PGP (encrypt / decrypt-with-seed)
+// WASM bootstrap for the archive pipeline.
 //   ink-brotli — brotli q11 compression / decompression
-// Loaded once, memoized. All crypto runs on-device; the seed never leaves here.
+//   ink-seed   — per-archive key generation
+// Encryption is WebCrypto AES-256-GCM (native), keyed by SHA-256 of the seed,
+// so no PGP is involved. (PGP was dropped: rPGP corrupts large messages and,
+// with the key carried in the link, asymmetric crypto adds no security here.)
 
-import initPgp, {
-  pgp_encrypt,
-  pgp_pubkey_from_seed,
-  pgp_decrypt_with_seed,
-} from './wasm/ink_pgp.js?v=2';
-import initBrotli, {
-  brotli_compress,
-  brotli_decompress,
-} from './wasm/ink_brotli.js?v=2';
+import initBrotli, { brotli_compress, brotli_decompress } from './wasm/ink_brotli.js?v=2';
 import initSeed, { generate_key } from './wasm/ink_seed.js?v=2';
 
 let ready = null;
@@ -20,18 +13,11 @@ let ready = null;
 export function initWasm() {
   if (!ready) {
     ready = Promise.all([
-      initPgp(new URL('./wasm/ink_pgp_bg.wasm?v=2', import.meta.url)),
       initBrotli(new URL('./wasm/ink_brotli_bg.wasm?v=2', import.meta.url)),
       initSeed(new URL('./wasm/ink_seed_bg.wasm?v=2', import.meta.url)),
     ]);
   }
   return ready;
-}
-
-// Fresh per-archive key (256-bit, base64url) from the Rust CSPRNG.
-export async function generateKey() {
-  await initWasm();
-  return generate_key();
 }
 
 export async function brotliCompress(bytes, quality = 11) {
@@ -44,20 +30,8 @@ export async function brotliDecompress(bytes) {
   return brotli_decompress(bytes);
 }
 
-export async function pgpEncrypt(bytes, armoredPublicKey) {
+// Fresh per-archive key (256-bit, base64url) from the Rust CSPRNG.
+export async function generateKey() {
   await initWasm();
-  return pgp_encrypt(bytes, armoredPublicKey);
-}
-
-// Derive the armored PUBLIC key from a seed (public data; safe to cache).
-export async function pubkeyFromSeed(seed) {
-  await initWasm();
-  return pgp_pubkey_from_seed(new TextEncoder().encode(seed));
-}
-
-// Decrypt by regenerating the private key from the seed inside WASM.
-// The seed and private key exist only for the duration of this call.
-export async function decryptWithSeed(bytes, seed) {
-  await initWasm();
-  return pgp_decrypt_with_seed(bytes, new TextEncoder().encode(seed));
+  return generate_key();
 }

@@ -1,8 +1,8 @@
 import { captureUrl, fetchResources, store, checkArchive, loadArchive, remove, WORKER_URL } from './storage.js?v=4';
 import { assembleArchive } from './capture.js?v=2';
-import { createArchive, readArchive } from './pipeline.js?v=6';
+import { createArchive, readArchive } from './pipeline.js?v=8';
 import { prepareForDisplay } from './sanitize.js?v=1';
-import { generateKey, pubkeyFromSeed } from './wasm.js?v=3';
+import { generateKey } from './wasm.js?v=4';
 import { downloadPDF } from './pdf.js?v=1';
 
 const $ = s => document.querySelector(s);
@@ -155,12 +155,11 @@ if (route.mode === 'home') {
 
     const displayUrl = url.replace(/^https?:\/\//, '');
 
-    // This page's unique key + its public key.
-    let seed, publicKey;
+    // This page's unique key (also the AES key material via SHA-256).
+    let seed;
     status('generating key...');
     try {
       seed = await generateKey();
-      publicKey = await pubkeyFromSeed(seed);
     } catch (e) { return status('key generation failed: ' + e.message, true); }
 
     logEntry('capturing');
@@ -183,7 +182,7 @@ if (route.mode === 'home') {
       logEntry(`assembled: ${fmtSize(assembled.length)}`);
 
       logEntry('compressing + encrypting...');
-      const blob = await createArchive(assembled, publicKey);
+      const blob = await createArchive(assembled, seed);
       logEntry(`encrypted: ${fmtSize(blob.length)}`);
 
       logEntry('storing...');
